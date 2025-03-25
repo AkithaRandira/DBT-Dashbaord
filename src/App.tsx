@@ -5,7 +5,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Products } from './pages/Products';
 import { Shops } from './pages/Shops';
 import { SalesEntry } from './pages/data-entry/SalesEntry';
-import { ExpensesEntry } from './pages/data-entry/ExpensesEntry';
+import { ExpensesEntry } from './pages/data-entry/ExpensesEntry'; 
 import { FeedbackEntry } from './pages/data-entry/FeedbackEntry';
 
 function App() {

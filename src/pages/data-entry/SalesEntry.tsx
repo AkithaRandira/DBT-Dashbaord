@@ -1,150 +1,189 @@
-import React, { useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import React, { useEffect, useState } from 'react';
+import { supabase } from '../../supabase';
+import { formatCurrency } from '../../utils/format';
+import toast from 'react-hot-toast';
+
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+}
+
+interface Shop {
+  id: string;
+  name: string;
+}
+
+interface Item {
+  product_id: string;
+  quantity: number;
+  price: number;
+  total: number;
+}
 
 export const SalesEntry: React.FC = () => {
-  const [formData, setFormData] = useState({
-    product_id: '',
-    quantity: 1,
-    customer_age_group: '',
-    customer_gender: '',
-    customer_location: '',
-    payment_method: 'cash'
+  const [products, setProducts] = useState<Product[]>([]);
+  const [shops, setShops] = useState<Shop[]>([]);
+
+  const [form, setForm] = useState({
+    shop_id: '',
+    channel: 'retail',
+    date: new Date().toISOString().split('T')[0],
+    discount: 0,
+    status: 'pending',
   });
+
+  const [items, setItems] = useState<Item[]>([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const { data: productData } = await supabase.from('products').select('id, name, price');
+      const { data: shopData } = await supabase.from('shops').select('id, name');
+      setProducts(productData || []);
+      setShops(shopData || []);
+    };
+    fetchData();
+  }, []);
+
+  const handleItemChange = (index: number, field: keyof Item, value: string | number) => {
+    const updated = [...items];
+    const item = updated[index];
+
+    if (field === 'product_id') {
+      const selected = products.find(p => p.id === value);
+      if (selected) {
+        item.product_id = selected.id;
+        item.price = selected.price;
+        item.total = selected.price * item.quantity;
+      }
+    } else if (field === 'quantity') {
+      const qty = parseInt(value as string) || 0;
+      item.quantity = qty;
+      item.total = qty * item.price;
+    }
+
+    setItems(updated);
+  };
+
+  const handleAddItem = () => {
+    setItems([...items, { product_id: '', quantity: 1, price: 0, total: 0 }]);
+  };
+
+  const handleRemoveItem = (index: number) => {
+    const updated = [...items];
+    updated.splice(index, 1);
+    setItems(updated);
+  };
+
+  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const totalBeforeDiscount = items.reduce((sum, item) => sum + item.total, 0);
+  const discountAmount = (totalBeforeDiscount * (Number(form.discount) || 0)) / 100;
+  const grandTotal = totalBeforeDiscount - discountAmount;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    try {
-      const { data: product } = await supabase
-        .from('products')
-        .select('price')
-        .eq('id', formData.product_id)
-        .single();
 
-      if (!product) {
-        throw new Error('Product not found');
-      }
+    const { data: invoiceData, error: invoiceError } = await supabase.from('invoices').insert([{
+      ...form,
+      discount: Number(form.discount),
+      total: grandTotal,
+    }]).select();
 
-      const revenue = product.price * formData.quantity;
+    if (invoiceError || !invoiceData || invoiceData.length === 0) {
+      toast.error('❌ Failed to create invoice');
+      console.error(invoiceError);
+      return;
+    }
 
-      const { error } = await supabase
-        .from('transactions')
-        .insert([{
-          ...formData,
-          revenue
-        }]);
+    const invoiceId = invoiceData[0].id;
+    const itemPayload = items.map(item => ({
+      invoice_id: invoiceId,
+      product_id: item.product_id,
+      quantity: item.quantity,
+      price: item.price,
+      total: item.total,
+    }));
 
-      if (error) throw error;
+    const { error: itemsError } = await supabase.from('invoice_items').insert(itemPayload);
 
-      alert('Sale recorded successfully!');
-      setFormData({
-        product_id: '',
-        quantity: 1,
-        customer_age_group: '',
-        customer_gender: '',
-        customer_location: '',
-        payment_method: 'cash'
-      });
-    } catch (error) {
-      console.error('Error recording sale:', error);
-      alert('Failed to record sale. Please try again.');
+    if (itemsError) {
+      toast.error('❌ Failed to save items');
+      console.error(itemsError);
+    } else {
+      toast.success('✅ Invoice saved!');
+      setItems([]);
     }
   };
 
   return (
-    <div className="p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Record New Sale</h1>
-      
-      <form onSubmit={handleSubmit} className="max-w-2xl bg-white p-6 rounded-lg shadow">
-        <div className="grid grid-cols-1 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Product</label>
-            <select
-              value={formData.product_id}
-              onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500"
-              required
-            >
-              <option value="">Select a product</option>
-              {/* Products will be loaded from Supabase */}
-            </select>
-          </div>
+    <div className="p-8 max-w-3xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">Create New Invoice</h1>
+      <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 shadow rounded">
+        <select name="shop_id" value={form.shop_id} onChange={handleFormChange} required className="w-full border p-2 rounded">
+          <option value="">Select Shop</option>
+          {shops.map(shop => <option key={shop.id} value={shop.id}>{shop.name}</option>)}
+        </select>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Quantity</label>
-            <input
-              type="number"
-              min="1"
-              value={formData.quantity}
-              onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) })}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500"
-              required
-            />
-          </div>
+        <select name="channel" value={form.channel} onChange={handleFormChange} className="w-full border p-2 rounded">
+          <option value="retail">Retail</option>
+          <option value="direct">Direct</option>
+        </select>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Customer Age Group</label>
-            <select
-              value={formData.customer_age_group}
-              onChange={(e) => setFormData({ ...formData, customer_age_group: e.target.value })}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500"
-            >
-              <option value="">Select age group</option>
-              <option value="18-24">18-24</option>
-              <option value="25-34">25-34</option>
-              <option value="35-44">35-44</option>
-              <option value="45-54">45-54</option>
-              <option value="55+">55+</option>
-            </select>
-          </div>
+        <input type="date" name="date" value={form.date} onChange={handleFormChange} className="w-full border p-2 rounded" />
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Customer Gender</label>
-            <select
-              value={formData.customer_gender}
-              onChange={(e) => setFormData({ ...formData, customer_gender: e.target.value })}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500"
-            >
-              <option value="">Select gender</option>
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
+        <input
+          type="number"
+          name="discount"
+          value={form.discount}
+          onChange={handleFormChange}
+          placeholder="Discount %"
+          className="w-full border p-2 rounded"
+        />
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Customer Location</label>
-            <input
-              type="text"
-              value={formData.customer_location}
-              onChange={(e) => setFormData({ ...formData, customer_location: e.target.value })}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500"
-              placeholder="e.g., Colombo"
-            />
-          </div>
+        <div>
+          <h2 className="text-lg font-semibold mb-2">Items</h2>
+          {items.map((item, idx) => (
+            <div key={idx} className="grid grid-cols-6 gap-2 items-center mb-2">
+              <select
+                value={item.product_id}
+                onChange={(e) => handleItemChange(idx, 'product_id', e.target.value)}
+                className="col-span-2 border p-2 rounded"
+              >
+                <option value="">Select Product</option>
+                {products.map(product => (
+                  <option key={product.id} value={product.id}>{product.name}</option>
+                ))}
+              </select>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Payment Method</label>
-            <select
-              value={formData.payment_method}
-              onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500"
-              required
-            >
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-              <option value="bank_transfer">Bank Transfer</option>
-            </select>
-          </div>
+              <input
+                type="number"
+                value={item.quantity}
+                min={1}
+                onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
+                className="col-span-1 border p-2 rounded"
+              />
 
-          <div className="pt-4">
-            <button
-              type="submit"
-              className="w-full bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors"
-            >
-              Record Sale
-            </button>
-          </div>
+              <div className="col-span-2">{formatCurrency(item.total)}</div>
+              <button type="button" onClick={() => handleRemoveItem(idx)} className="text-red-600">Remove</button>
+            </div>
+          ))}
+
+          <button type="button" onClick={handleAddItem} className="mt-2 bg-blue-600 text-white px-4 py-2 rounded">
+            + Add Item
+          </button>
+        </div>
+
+        <div className="text-right font-bold">
+          Total: {formatCurrency(grandTotal)}
+        </div>
+
+        <div className="text-right">
+          <button type="submit" className="bg-emerald-600 text-white px-6 py-2 rounded hover:bg-emerald-700">
+            Save Invoice
+          </button>
         </div>
       </form>
     </div>
