@@ -1,6 +1,6 @@
-export const formatCurrency = (amount: number): string => {
-  return `Rs. ${amount.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  })}`;
-};
+export const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('en-LK', {
+    style: 'currency',
+    currency: 'LKR',
+    currencyDisplay: 'narrowSymbol', // shows "Rs." instead of "LKR"
+  }).format(value);
