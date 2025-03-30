@@ -6,11 +6,19 @@ interface StatCardProps {
   value: string | number;
   trend?: number;
   icon?: React.ReactNode;
+  onClick?: () => void; // ✅ Add this line
 }
 
-export const StatCard: React.FC<StatCardProps> = ({ title, value, trend, icon }) => {
+export const StatCard: React.FC<StatCardProps> = ({ title, value, trend, icon, onClick }) => {
+  const isClickable = typeof onClick === 'function';
+
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
+    <div
+      onClick={onClick}
+      className={`bg-white rounded-lg shadow-md p-6 transition hover:shadow-lg ${
+        isClickable ? 'cursor-pointer hover:bg-gray-50' : ''
+      }`}
+    >
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-600">{title}</p>
@@ -18,6 +26,7 @@ export const StatCard: React.FC<StatCardProps> = ({ title, value, trend, icon })
         </div>
         {icon && <div className="text-emerald-600">{icon}</div>}
       </div>
+
       {trend !== undefined && (
         <div className="mt-4 flex items-center">
           {trend >= 0 ? (

@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BarChart, LineChart, Leaf, Store } from 'lucide-react';
 import { DashboardCard } from '../components/DashboardCard';
-import { StatCard } from '../components/StatCard';
 import { formatCurrency } from '../utils/format';
 import {
   BarChart as RechartsBarChart,
@@ -18,6 +17,9 @@ import {
   Cell,
 } from 'recharts';
 import { supabase } from '../supabase';
+import { useNavigate } from 'react-router-dom';
+import { StatCard } from '../components/StatCard';
+
 
 const COLORS = ['#2563eb', '#7c3aed', '#db2777'];
 const STORE_CHART_COLOR = '#2563eb';
@@ -28,8 +30,8 @@ const LINE_COLORS = {
 };
 
 export const Dashboard: React.FC = () => {
-  const [selectedPeriod, setSelectedPeriod] = useState<'month' | 'year' | 'all'>('month');
-  const [selectedChannel, setSelectedChannel] = useState<'all' | 'retail' | 'direct'>('all');
+  const navigate = useNavigate();
+  const [selectedPeriod, setSelectedPeriod] = useState('month');
 
   const [productSales, setProductSales] = useState<{ name: string; value: number }[]>([]);
   const [storeSales, setStoreSales] = useState<{ name: string; value: number }[]>([]);
@@ -51,41 +53,36 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     const loadInsights = async () => {
       const { data: invoices } = await supabase.from('invoices').select('*');
-      if (!invoices) return;
 
-      // 🔍 Apply period and channel filters
-      let filteredInvoices = [...invoices];
       const now = new Date();
+      let filteredInvoices = invoices || [];
 
       if (selectedPeriod === 'month') {
-        filteredInvoices = filteredInvoices.filter((inv) => {
-          const d = new Date(inv.date);
-          return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        filteredInvoices = filteredInvoices.filter(inv => {
+          const date = new Date(inv.date);
+          return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
         });
       } else if (selectedPeriod === 'year') {
-        filteredInvoices = filteredInvoices.filter((inv) => {
-          const d = new Date(inv.date);
-          return d.getFullYear() === now.getFullYear();
+        filteredInvoices = filteredInvoices.filter(inv => {
+          const date = new Date(inv.date);
+          return date.getFullYear() === now.getFullYear();
         });
-      }
-
-      if (selectedChannel !== 'all') {
-        filteredInvoices = filteredInvoices.filter((inv) => inv.channel === selectedChannel);
       }
 
       const total = filteredInvoices.reduce((sum, i) => sum + i.total, 0);
-      const directTotal =
-        filteredInvoices.filter((i) => i.channel === 'direct').reduce((s, i) => s + i.total, 0);
+      const directTotal = filteredInvoices
+        .filter(i => i.channel === 'direct')
+        .reduce((s, i) => s + i.total, 0);
 
-      // 📦 Product Sales
       const { data: items } = await supabase
         .from('invoice_items')
-        .select('product_id, total, products!inner(name)')
-        .order('total', { ascending: false });
+        .select('product_id, total, products(name)');
 
       const productMap = new Map<string, number>();
-      items?.forEach((item) => {
-        const name = item.products?.[0]?.name;
+      items?.forEach(item => {
+        const name = Array.isArray(item.products)
+          ? (item.products[0] as { name: string })?.name
+          : (item.products as { name: string })?.name;
         if (!name) return;
         productMap.set(name, (productMap.get(name) || 0) + item.total);
       });
@@ -94,20 +91,10 @@ export const Dashboard: React.FC = () => {
         ([name, value]: [string, number]) => ({ name, value })
       );
 
-      // 🏪 Store Sales
-      const { data: storeInvoices } = await supabase
-        .from('invoices')
-        .select('total, channel, shops(name)')
-        .order('total', { ascending: false });
-
-      const filteredStoreInvoices =
-        selectedChannel === 'all'
-          ? storeInvoices
-          : storeInvoices?.filter((i) => i.channel === selectedChannel);
-
+      const { data: storeInvoices } = await supabase.from('invoices').select('total, shops(name)');
       const storeMap = new Map<string, number>();
-      filteredStoreInvoices?.forEach((inv) => {
-        const name = inv.shops?.[0]?.name;
+      storeInvoices?.forEach(inv => {
+        const name = Array.isArray(inv.shops) && inv.shops.length > 0 ? inv.shops[0].name : undefined;
         if (!name) return;
         storeMap.set(name, (storeMap.get(name) || 0) + inv.total);
       });
@@ -116,9 +103,8 @@ export const Dashboard: React.FC = () => {
         ([name, value]: [string, number]) => ({ name, value })
       );
 
-      // 📅 Monthly Breakdown
       const monthly = new Map<string, { total: number; retail: number; direct: number }>();
-      filteredInvoices.forEach((inv) => {
+      filteredInvoices.forEach(inv => {
         const month = new Date(inv.date).toLocaleString('default', { month: 'short', year: 'numeric' });
         if (!monthly.has(month)) {
           monthly.set(month, { total: 0, retail: 0, direct: 0 });
@@ -126,7 +112,11 @@ export const Dashboard: React.FC = () => {
         const m = monthly.get(month)!;
         m.total += inv.total;
         if (inv.channel === 'retail' || inv.channel === 'direct') {
-          m[inv.channel as 'retail' | 'direct'] += inv.total;
+          if (inv.channel === 'retail' || inv.channel === 'direct') {
+            if (inv.channel === 'retail' || inv.channel === 'direct') {
+              m[inv.channel as keyof typeof m] += inv.total;
+            }
+          }
         }
       });
 
@@ -135,7 +125,6 @@ export const Dashboard: React.FC = () => {
         ...values,
       }));
 
-      // ✅ Set State
       setProductSales(productSales);
       setStoreSales(storeSales);
       setMonthlySales(monthlySales);
@@ -148,11 +137,10 @@ export const Dashboard: React.FC = () => {
     };
 
     loadInsights();
-  }, [selectedPeriod, selectedChannel]);
+  }, [selectedPeriod]);
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -160,44 +148,47 @@ export const Dashboard: React.FC = () => {
             <div className="flex space-x-4">
               <select
                 value={selectedPeriod}
-                onChange={(e) => setSelectedPeriod(e.target.value as 'month' | 'year' | 'all')}
+                onChange={(e) => setSelectedPeriod(e.target.value)}
                 className="rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500"
               >
                 <option value="month">This Month</option>
                 <option value="year">This Year</option>
                 <option value="all">All Time</option>
               </select>
-
-              <select
-                value={selectedChannel}
-                onChange={(e) => setSelectedChannel(e.target.value as 'all' | 'retail' | 'direct')}
-                className="rounded-md border-gray-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500"
-              >
-                <option value="all">All Channels</option>
-                <option value="retail">Retail</option>
-                <option value="direct">Direct</option>
-              </select>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <StatCard title="Total Sales" value={formatCurrency(stats.total)} trend={12} icon={<BarChart />} />
-          <StatCard title="Best Product" value={stats.bestProduct} icon={<Leaf />} />
-          <StatCard title="Best Store" value={stats.bestStore} icon={<Store />} />
+          <StatCard
+            title="Total Sales"
+            value={formatCurrency(stats.total)}
+            trend={12}
+            icon={<BarChart />}
+            onClick={() => navigate('/sales')}
+          />
+          <StatCard
+            title="Best Product"
+            value={stats.bestProduct}
+            icon={<Leaf />}
+          />
+          <StatCard
+            title="Best Store"
+            value={stats.bestStore}
+            icon={<Store />}
+            onClick={() => navigate(`/sales?store=${encodeURIComponent(stats.bestStore)}`)}
+          />
           <StatCard
             title="Direct Sales"
             value={formatCurrency(stats.directTotal)}
             trend={-5}
             icon={<LineChart />}
+            onClick={() => navigate(`/sales?channel=direct`)}
           />
         </div>
 
-        {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <DashboardCard title="Sales by Product" className="min-h-[400px]">
             <ResponsiveContainer width="100%" height={350}>

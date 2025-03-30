@@ -7,6 +7,11 @@ import { Shops } from './pages/Shops';
 import { SalesEntry } from './pages/data-entry/SalesEntry';
 import { ExpensesEntry } from './pages/data-entry/ExpensesEntry'; 
 import { FeedbackEntry } from './pages/data-entry/FeedbackEntry';
+import { SalesList } from './pages/SalesList';
+export const InvoiceDetail = () => {
+  return <div>Invoice Detail Page</div>;
+};
+
 
 function App() {
   return (
@@ -16,6 +21,8 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="products" element={<Products />} />
           <Route path="shops" element={<Shops />} />
+          <Route path="sales" element={<SalesList />} />
+          <Route path="sales/:id" element={<InvoiceDetail />} /> {/* ✅ Add this line */}
           <Route path="data-entry">
             <Route path="sales" element={<SalesEntry />} />
             <Route path="expenses" element={<ExpensesEntry />} />
@@ -27,4 +34,4 @@ function App() {
   );
 }
 
-export default App
+export default App;
